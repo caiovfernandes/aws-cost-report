@@ -12,13 +12,13 @@ import boto3
 # Authorized family can be found at
 # https://aws.amazon.com/ec2/pricing/on-demand
 INSTANCE_META = collections.OrderedDict([
-    ('nano'     , [1      , ["t2"]])                                                                                                 ,
-    ('micro'    , [2      , ["t2", "t1"]])                                                                                           ,
-    ('small'    , [1 * 4  , ["t2", "m1"]])                                                                                           ,
-    ('medium'   , [2 * 4  , ["t2", "m1", "m3", "c1"]])                                                                               ,
-    ('large'    , [4 * 4  , ["t2", "m5", "m4", "c5", "c4", "r4", "i3", "m1", "m3", "c3", "r3"]])                                     ,
-    ('xlarge'   , [8 * 4  , ["t2", "m5", "m4", "c5", "c4", "p2", "x1e", "r4", "i3", "d2", "m1", "m3", "c1", "c3", "m2", "r3", "i2"]]),
-    ('2xlarge'  , [16 * 4 , ["t2", "m5", "m4", "c5", "c4", "p3", "x1e", "r4", "i3", "h1", "d2", "m3", "c3", "g2", "m2", "r3", "i2"]]),
+    ('nano'     , [1      , ["t4g", "t3a","t3", "t2"]])                                                                                                 ,
+    ('micro'    , [2      , ["t4g", "t3a","t3", "t2", "t1"]])                                                                                           ,
+    ('small'    , [1 * 4  , ["t4g", "t3a","t3", "t2", "m1"]])                                                                                           ,
+    ('medium'   , [2 * 4  , ["t4g", "t3a","t3", "t2", "m1", "m3", "c1"]])                                                                               ,
+    ('large'    , [4 * 4  , ["t4g", "t3a","t3", "t2", "m5", "m4", "c5", "c4", "r4", "i3", "m1", "m3", "c3", "r3"]])                                     ,
+    ('xlarge'   , [8 * 4  , ["t4g", "t3a","t3", "t2", "m5", "m4", "c5", "c4", "p2", "x1e", "r4", "i3", "d2", "m1", "m3", "c1", "c3", "m2", "r3", "i2"]]),
+    ('2xlarge'  , [16 * 4 , ["t3a","t3", "t2", "m5", "m4", "c5", "c4", "p3", "x1e", "r4", "i3", "h1", "d2", "m3", "c3", "g2", "m2", "r3", "i2"]]),
     ('4xlarge'  , [32 * 4 , ["m5", "m4", "c5", "c4", "g3", "x1e", "r4", "i3", "h1", "d2", "c3", "m2", "r3", "i2"]])                  ,
     ('8xlarge'  , [64 * 4 , ["c4", "p2", "p3", "g3", "x1e", "r4", "i3", "h1", "d2", "cc2", "c3", "g2", "cr1", "r3", "i2", "hs1"]])   ,
     ('9xlarge'  , [72 * 4 , ["c5"]])                                                                                                 ,
@@ -60,9 +60,13 @@ def next_or(it, default):
 def next_or_none(it):
     return next_or(it, None)
 
-_str_to_instance_size_re = re.compile(r'([a-z]+[0-9])\.(nano|micro|small|medium|(?:[0-9]*x?large))')
+_str_to_instance_size_re = re.compile(r'([a-z]+[0-9]?[a-z]*)\.(nano|micro|small|medium|(?:x?large))')
 def str_to_instance_size(s):
+    # print("S: " + str(s))
     m = _str_to_instance_size_re.match(s)
+    # print("M: " + str(m))
+    instance = InstanceSize(family=m.group(1), size=m.group(2))
+    # print(str(instance))
     if m:
         return InstanceSize(
             family=m.group(1),
@@ -76,7 +80,20 @@ def recommended_size(instance_type, cpu_usage):
     current_norm_factor = INSTANCE_META[instance_type.size][0]
     cpu_delta = cpu_usage / TARGET_CPU_USAGE
     target_norm_factor = cpu_delta * current_norm_factor
+    # print("current_norm_factor: " + str(current_norm_factor))
+    # print("Tager_norm_factor: " + str(target_norm_factor))
+    # print("cpu_delta: " + str(cpu_delta))
+    # print("instance_type.family: " + str(instance_type.family))
     matching_norm_factor = next(size for size, meta in INSTANCE_META.items() if meta[0] >= target_norm_factor and instance_type.family in meta[1])
+    # for size, meta in INSTANCE_META.items():
+    #     print("Meta[0]: " + str(meta[0]))
+    #     print("Meta[1]: " + str(meta[1]))
+    #     print("Size[current]: " + str(size))
+    #     if meta[0] >= target_norm_factor and instance_type.family in meta[1]:
+    #         print("Meta[0]: " + str(meta[0]))
+    #         print("Size[current]: " + str(size))
+    #         matching_norm_factor = next(size)
+    #         break
     return matching_norm_factor
 
 def get_reason(cpu_usage, current_size, recommendation):
@@ -116,6 +133,7 @@ def get_cpu_usage(cloudwatch, now, instance_id):
 
 def get_recommendation(instance):
         instance_type_str = instance['InstanceType']
+        # print("Instance: " + str(instance['InstanceType']))
         instance_type = str_to_instance_size(instance_type_str)
         instance_id = instance['InstanceId']
         instance_name = next_or((tag['Value'] for tag in instance.get('Tags', []) if tag['Key'] == 'Name'), '')

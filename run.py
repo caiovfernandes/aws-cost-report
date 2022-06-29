@@ -92,6 +92,18 @@ def parse_args():
         metavar="PROFILE",
         default=[],
     )
+    parser.add_argument(
+        "--use-sso-auth",
+        help="Get the authentication method.",
+        dest="use_sso_auth",
+        default=False,
+    )
+    parser.add_argument(
+        "--sso-profile",
+        help="Get the SSO profile.",
+        dest="sso_profile",
+        default="",
+    )
     return parser.parse_args(), parser
 
 
@@ -112,7 +124,7 @@ try_mkdir("out/instance-metadata")
 try_mkdir("out/last-month")
 try_mkdir("out/s3")
 
-default_region = "us-east-1"
+default_region = "ap-shoutheast-2"
 
 def awsenv(profile, region):
     return "util/awsenv --profile {} --region {}".format(profile, region)
@@ -142,13 +154,22 @@ def build_xlsx(name):
     os.system("src/make_xlsx.py {}".format(name))
 
 def get_session(profile):
-    if profile != 'env':
-        session = boto3.Session(profile_name=profile)
-    else:
-        session = boto3.Session()
+    args, parser = parse_args()
+    boto_client = get_boto_client(profile, args.use_sso_auth)
+    # if profmake
+    print("Using default session")
+    session = boto_client.Session()
     return session
 
-def do_get_billing_data(profile, bucket, prefix):
+def get_boto_client(profile, use_sso_auth):
+        if eval(use_sso_auth):
+            print("Using SSO auth")
+            boto3.setup_default_session(profile_name=profile)
+        else:
+            print("AWS KEYS authentication")
+        return boto3
+
+def do_get_billing_data(profile, bucket, prefix, boto_client):
 
     nonce = hashlib.sha1("{}{}".format(bucket, prefix).encode()).hexdigest()[:12]
     it = 1
@@ -166,6 +187,10 @@ def do_get_billing_data(profile, bucket, prefix):
 
     def save_to_file(s3_client, bucket, file_name, report_key):
         try:
+            print("Bucket: " + bucket)
+            print("file_name: " + file_name)
+            print("report_key: " + report_key)
+            report_key = report_key[1:] if report_key[0] == '/' else report_key
             s3_client.download_file(Bucket=bucket, Key=report_key, Filename=file_name)
         except Exception as e:
             print(e)
@@ -191,6 +216,7 @@ def do_get_billing_data(profile, bucket, prefix):
 
     def analyze_obj(s3_client, objs):
         total = len(objs)
+        print("Total: " + str(total))
         current = 1
         for obj in objs:
             print("  Getting bill files from {} ({}/{})...".format(obj["Key"], current, total))
@@ -217,19 +243,24 @@ def do_get_billing_data(profile, bucket, prefix):
                 print("Failed to extract {}: {}".format(file_name, e))
             finally:
                 os.remove(os.path.join("in/usagecost", file_name))
-
     try:
-        session = get_session(profile)
-        s3_client = session.client("s3")
+        s3_client = boto_client.client("s3")
         page = s3_client.get_paginator("list_objects").paginate(Bucket=bucket, Prefix=prefix)
         min_date = (datetime.now() + dateutil.relativedelta.relativedelta(months=-6)).replace(day=1).strftime('%Y%m%d')
+        # objs = [
+        #     obj
+        #     for p in page
+        #     for obj in p["Contents"]
+        #     if obj["Key"].endswith(".json") and
+        #         len(obj["Key"].split('/')) == 4 and
+        #         obj["Key"].split('/')[-2] >= min_date
+        # ]
         objs = [
             obj
             for p in page
             for obj in p["Contents"]
-            if obj["Key"].endswith(".json") and
-                len(obj["Key"].split('/')) == 4 and
-                obj["Key"].split('/')[-2] >= min_date
+                if obj["Key"].endswith(".json") and
+                    obj["Key"].split('/')[-2] >= min_date
         ]
     except Exception as e:
         exit(e)
@@ -266,29 +297,37 @@ def clear_data():
             recursively_remove_file(f)
 
 def get_regions(session):
-    client_region = session.region_name or default_region
-    client = session.client('ec2', region_name=client_region)
-    regions = client.describe_regions()
-    return [
-        region['RegionName']
-        for region in regions['Regions']
-    ]
+    # client_region = session.region_name or default_region
+    # client = session.client('ec2', region_name=client_region)
+    # regions = client.describe_regions()
+    # return [
+    #     region['RegionName']
+    #     for region in regions['Regions']
+    # ]
+    return ['ap-southeast-2']
 
 def main():
     args, parser = parse_args()
+    print("SSO_PROFILE: " + args.sso_profile)
+    print("SSO_USAGE: " + args.use_sso_auth)
+    boto_client = get_boto_client(args.sso_profile, args.use_sso_auth)
+
     args.ec2 = [a[0] for a in args.ec2] if len(args.ec2) else []
-    # if len(args.billing) == 0 and len(args.ec2) == 0:
-    #     return parser.print_help()
+
     if args.clear_before:
+        print("Clearing data ....")
         clear_data()
-    if not os.path.isfile("in/ondemandcosts.json"):
+    if not os.path.isfile("./in/ondemandcosts.json"):
+        print((not os.path.isfile("./in/ondemandcosts.json")))
+        print("Getting ec2 costs...")
         os.system("src/get_ec2_costs.sh")
     for bill in args.billing:
         print("Download billings for {}...".format(bill[0]))
-        do_get_billing_data(*bill)
+        do_get_billing_data(*bill, boto_client)
+        print("BILLING FINISHED!")
     if len(args.ec2):
-        session = get_session(args.ec2[0])
-        regions = get_regions(session)
+        # session = get_session(args.sso_profile)
+        regions = get_regions(boto_client)
         threads = []
         for region in regions:
             print("Fetching ec2 data for all accounts in {}...".format(region))
@@ -319,8 +358,10 @@ def main():
             print("Processing billing data ({}/{} - {})...".format(i, len(fcts), fct[0]))
             fct[1]()
         if args.generate_gsheet:
+            print("Generating gsheet")
             build_gsheet()
         if args.generate_xslx:
+            print("Generating xlsx sheet")
             build_xlsx(args.xlsx_name)
 
 

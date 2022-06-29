@@ -3,3 +3,7 @@
 /src/__pycache__
 /in
 /out
+.DS_Store
+Makefile.example
+data/
+test.py

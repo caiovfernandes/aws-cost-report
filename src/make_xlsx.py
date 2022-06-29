@@ -235,13 +235,15 @@ def gen_weekly_variations(workbook, header_format, val_format):
         per_format.set_border()
         per_format.set_num_format(NUMFORMAT_PERCENT)
 
-        date_fieldnames = reader.fieldnames[1:-1]
+        date_fieldnames = reader.fieldnames[1:]
         if len(date_fieldnames) > 6:
             date_fieldnames = date_fieldnames[-5:]
         refs = {
             header: [i, True, float]
             for i, header in zip(itertools.count(3, 2), date_fieldnames[1:])
         }
+        # print("date_fieldnames[0] : " + str(date_fieldnames[0]))
+        # print("len(refs[date_fieldnames[0]]) : " + str(len(refs[date_fieldnames[0]])))
         refs[date_fieldnames[0]] = [1, False, float]
         refs["usage"] = [0, False, str]
         for h, v in refs.items():
@@ -591,7 +593,7 @@ def gen_s3_cost(workbook, header_format, val_format):
 def gen_introduction(workbook, header_format, val_format):
     worksheet = workbook.add_worksheet("Introduction")
 
-    worksheet.insert_image("A1", "src/ressources/introduction.png")
+    worksheet.insert_image("A1", "src/resources/introduction.png")
 
 
 def main(name):

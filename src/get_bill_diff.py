@@ -59,7 +59,6 @@ for row in rows_folder(DIR_USAGECOST):
         print(row, file=sys.stderr)
         print(month, file=sys.stderr)
         print(usagetype, file=sys.stderr)
-
 all_months = sorted(set(k[0] for k in breakdown.keys()))
 preserved_months = all_months[-12:]
 first_month = preserved_months[0]
